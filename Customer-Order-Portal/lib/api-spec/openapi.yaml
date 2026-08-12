@@ -1,0 +1,2906 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Smart On X Customer Ordering Portal API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: auth
+  - name: portal
+  - name: orders
+  - name: products
+  - name: crm
+  - name: places
+  - name: admin
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  # ─── AUTH (portal) ───────────────────────────────────────────────
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login (username or email)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginCredentials"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Account disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current portal session
+      responses:
+        "204":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current portal session
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/forgot-username:
+    post:
+      operationId: forgotUsername
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInput"
+      responses:
+        "200":
+          description: Always returns success message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UsernameOrEmailInput"
+      responses:
+        "200":
+          description: Always returns success message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordInput"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInput"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Wrong current password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── ADMIN AUTH ───────────────────────────────────────────────────
+  /admin/auth/login:
+    post:
+      operationId: adminLogin
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginCredentials"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/auth/logout:
+    post:
+      operationId: adminLogout
+      tags: [admin]
+      responses:
+        "204":
+          description: Logged out
+
+  /admin/auth/me:
+    get:
+      operationId: getAdminMe
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PRODUCTS (public) ───────────────────────────────────────────
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List all active products
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+
+  # ─── CRM (session-cached) ────────────────────────────────────────
+  /crm/company:
+    get:
+      operationId: getCrmCompany
+      tags: [crm]
+      summary: Get current user's HubSpot company
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsCompany"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /crm/locations:
+    get:
+      operationId: getCrmLocations
+      tags: [crm]
+      summary: Get role-filtered locations for current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsLocation"
+
+  /crm/billing-profiles:
+    get:
+      operationId: getCrmBillingProfiles
+      tags: [crm]
+      summary: Get billing profiles for current user's company
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsBillingProfile"
+
+  /crm/contacts:
+    get:
+      operationId: getCrmContacts
+      tags: [crm]
+      summary: Get contacts for current user's company
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsContact"
+
+  /crm/refresh:
+    post:
+      operationId: refreshCrmCache
+      tags: [crm]
+      summary: Invalidate the 5-minute CRM session cache
+      responses:
+        "200":
+          description: Cache cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── PLACES ──────────────────────────────────────────────────────
+  /places/autocomplete:
+    get:
+      operationId: placesAutocomplete
+      tags: [places]
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlacePrediction"
+
+  /places/details:
+    get:
+      operationId: placesDetails
+      tags: [places]
+      parameters:
+        - name: placeId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaceDetails"
+
+  # ─── PORTAL DASHBOARD ────────────────────────────────────────────
+  /portal/dashboard:
+    get:
+      operationId: getPortalDashboard
+      tags: [portal]
+      summary: Get dashboard data (role-scoped)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardData"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL ORDERS ───────────────────────────────────────────────
+  /portal/orders:
+    get:
+      operationId: listPortalOrders
+      tags: [portal]
+      summary: List orders (role-scoped) with filters
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: locationId
+          in: query
+          schema:
+            type: string
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+
+  /portal/orders/{id}:
+    get:
+      operationId: getPortalOrder
+      tags: [portal]
+      summary: Get order detail (role-scoped)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "404":
+          description: Not found or outside scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders:
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Submit a new order (wizard submit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderInput"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderCreatedResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL ACCOUNT ──────────────────────────────────────────────
+  /portal/account:
+    get:
+      operationId: getPortalAccount
+      tags: [portal]
+      summary: Get current user's profile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountProfile"
+
+  /portal/account/emails:
+    post:
+      operationId: addAccountEmail
+      tags: [portal]
+      summary: Add an alias email to current user's contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInput"
+      responses:
+        "200":
+          description: Email added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid or already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL LOCATIONS ─────────────────────────────────────────────
+  /portal/locations:
+    get:
+      operationId: listPortalLocations
+      tags: [portal]
+      summary: List role-filtered locations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsLocation"
+
+  /portal/location-requests:
+    get:
+      operationId: listPortalLocationRequests
+      tags: [portal]
+      summary: List location requests by current user's org
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocationRequest"
+    post:
+      operationId: createLocationRequest
+      tags: [portal]
+      summary: Submit a new location request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationRequestInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL MANAGE TEAM ──────────────────────────────────────────
+  /portal/manage/team:
+    get:
+      operationId: listTeamUsers
+      tags: [portal]
+      summary: List portal users in current org (role-scoped)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamUser"
+
+  /portal/manage/team/users:
+    post:
+      operationId: createTeamUser
+      tags: [portal]
+      summary: Add a new portal user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamUser"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /portal/manage/team/users/{id}:
+    patch:
+      operationId: updateTeamUser
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamUser"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /portal/manage/team/users/{id}/reset-password:
+    post:
+      operationId: resetTeamUserPassword
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Password reset; returns temp password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempPasswordResponse"
+        "403":
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL MANAGE CONTACTS ───────────────────────────────────────
+  /portal/manage/contacts:
+    get:
+      operationId: listManageContacts
+      tags: [portal]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsContact"
+    post:
+      operationId: createManageContact
+      tags: [portal]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsContact"
+
+  /portal/manage/contacts/{id}:
+    patch:
+      operationId: updateManageContact
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsContact"
+
+  /portal/manage/contacts/{id}/emails:
+    post:
+      operationId: addContactEmail
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInput"
+      responses:
+        "200":
+          description: Email added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── PORTAL MANAGE LOCATIONS ─────────────────────────────────────
+  /portal/manage/locations:
+    get:
+      operationId: listManageLocations
+      tags: [portal]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsLocation"
+    post:
+      operationId: createManageLocation
+      tags: [portal]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsLocation"
+
+  /portal/manage/locations/{id}:
+    patch:
+      operationId: updateManageLocation
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsLocation"
+
+  /portal/manage/location-requests:
+    get:
+      operationId: listManageLocationRequests
+      tags: [portal]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocationRequest"
+
+  /portal/manage/location-requests/{id}/approve:
+    post:
+      operationId: approveLocationRequest
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveLocationRequestInput"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /portal/manage/location-requests/{id}/reject:
+    post:
+      operationId: rejectLocationRequest
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectLocationRequestInput"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── PORTAL MANAGE BILLING ──────────────────────────────────────
+  /portal/manage/billing:
+    get:
+      operationId: listManageBilling
+      tags: [portal]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingPageData"
+
+  /portal/manage/billing/{id}:
+    patch:
+      operationId: updateManageBilling
+      tags: [portal]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingProfileUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsBillingProfile"
+
+  /portal/manage/billing/new:
+    post:
+      operationId: createManageBilling
+      tags: [portal]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingProfileInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsBillingProfile"
+
+  # ─── ADMIN DASHBOARD ─────────────────────────────────────────────
+  /admin/dashboard:
+    get:
+      operationId: getAdminDashboard
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDashboardData"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── ADMIN ORGANIZATIONS ─────────────────────────────────────────
+  /admin/organizations:
+    get:
+      operationId: listAdminOrganizations
+      tags: [admin]
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgListResponse"
+
+  /admin/organizations/{id}:
+    get:
+      operationId: getAdminOrganization
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgDetail"
+    patch:
+      operationId: updateAdminOrganization
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrgUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsCompany"
+
+  /admin/organizations/{id}/locations:
+    get:
+      operationId: listAdminOrgLocations
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsLocation"
+    post:
+      operationId: createAdminOrgLocation
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsLocation"
+
+  /admin/organizations/{id}/locations/{locId}:
+    patch:
+      operationId: updateAdminOrgLocation
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: locId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsLocation"
+
+  /admin/organizations/{id}/billing-profiles:
+    get:
+      operationId: listAdminOrgBillingProfiles
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsBillingProfile"
+    post:
+      operationId: createAdminOrgBillingProfile
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingProfileInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsBillingProfile"
+
+  /admin/organizations/{id}/billing-profiles/{bpId}:
+    patch:
+      operationId: updateAdminOrgBillingProfile
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bpId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingProfileUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsBillingProfile"
+    delete:
+      operationId: deleteAdminOrgBillingProfile
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: bpId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Profile is in use by locations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/organizations/{id}/users:
+    get:
+      operationId: listAdminOrgUsers
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamUser"
+    post:
+      operationId: createAdminOrgUser
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamUser"
+
+  /admin/organizations/{id}/users/{uid}:
+    patch:
+      operationId: updateAdminOrgUser
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamUser"
+
+  /admin/organizations/{id}/users/{uid}/reset-password:
+    post:
+      operationId: adminResetOrgUserPassword
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: uid
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempPasswordResponse"
+
+  /admin/organizations/{id}/contacts:
+    get:
+      operationId: listAdminOrgContacts
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HsContact"
+    post:
+      operationId: createAdminOrgContact
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsContact"
+
+  /admin/organizations/{id}/contacts/{cid}:
+    patch:
+      operationId: updateAdminOrgContact
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HsContact"
+
+  /admin/organizations/{id}/contacts/{cid}/emails:
+    post:
+      operationId: addAdminContactEmail
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInput"
+      responses:
+        "200":
+          description: Email added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /admin/organizations/{id}/orders:
+    get:
+      operationId: listAdminOrgOrders
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+
+  # ─── ADMIN ONBOARDING ─────────────────────────────────────────────
+  /admin/onboard:
+    post:
+      operationId: adminOnboard
+      tags: [admin]
+      summary: Onboard a new organization (5-step wizard submit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardInput"
+      responses:
+        "201":
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardResult"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── ADMIN ORDERS ────────────────────────────────────────────────
+  /admin/orders:
+    get:
+      operationId: listAdminOrders
+      tags: [admin]
+      parameters:
+        - name: orgId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+        - name: terms
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+
+  /admin/orders/export:
+    get:
+      operationId: exportAdminOrders
+      tags: [admin]
+      summary: Export filtered orders as CSV
+      parameters:
+        - name: orgId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+        - name: terms
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /admin/orders/{id}:
+    patch:
+      operationId: updateAdminOrder
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderStatusUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+
+  # ─── ADMIN LOCATION REQUESTS ─────────────────────────────────────
+  /admin/location-requests:
+    get:
+      operationId: listAdminLocationRequests
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocationRequest"
+
+  /admin/location-requests/{id}/approve:
+    post:
+      operationId: adminApproveLocationRequest
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveLocationRequestInput"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /admin/location-requests/{id}/reject:
+    post:
+      operationId: adminRejectLocationRequest
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectLocationRequestInput"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # ─── ADMIN INTEGRATION LOG ──────────────────────────────────────
+  /admin/integration-log:
+    get:
+      operationId: listIntegrationLog
+      tags: [admin]
+      parameters:
+        - name: system
+          in: query
+          schema:
+            type: string
+        - name: operation
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 50
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationLogListResponse"
+
+  # ─── ADMIN EMAIL LOG ─────────────────────────────────────────────
+  /admin/email-log:
+    get:
+      operationId: listEmailLog
+      tags: [admin]
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 50
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLogListResponse"
+
+  # ─── ADMIN IDENTITY RESOLVER ─────────────────────────────────────
+  /admin/identity:
+    get:
+      operationId: resolveIdentity
+      tags: [admin]
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityResult"
+
+  # ─── ADMIN STAFF ─────────────────────────────────────────────────
+  /admin/staff:
+    get:
+      operationId: listAdminStaff
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+    post:
+      operationId: createAdminStaff
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /admin/staff/{id}:
+    patch:
+      operationId: updateAdminStaff
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /admin/staff/{id}/reset-password:
+    post:
+      operationId: resetAdminStaffPassword
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TempPasswordResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        fieldErrors:
+          type: object
+          additionalProperties:
+            type: string
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    # ─── AUTH SCHEMAS ─────────────────────────────────────────────
+    LoginCredentials:
+      type: object
+      required: [usernameOrEmail, password]
+      properties:
+        usernameOrEmail:
+          type: string
+        password:
+          type: string
+
+    AdminLoginCredentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthSession:
+      type: object
+      required: [userId, roleKey, username, hubspotCompanyId, hubspotContactId, mustChangePassword]
+      properties:
+        userId:
+          type: number
+        roleKey:
+          type: string
+        roleLabel:
+          type: string
+        username:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        hubspotCompanyId:
+          type: string
+        hubspotContactId:
+          type: string
+        mustChangePassword:
+          type: boolean
+
+    AdminSession:
+      type: object
+      required: [adminId, name, email]
+      properties:
+        adminId:
+          type: number
+        name:
+          type: string
+        email:
+          type: string
+
+    EmailInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          
+
+    UsernameOrEmailInput:
+      type: object
+      required: [usernameOrEmail]
+      properties:
+        usernameOrEmail:
+          type: string
+
+    ResetPasswordInput:
+      type: object
+      required: [token, newPassword, confirmPassword]
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+          minLength: 10
+        confirmPassword:
+          type: string
+
+    ChangePasswordInput:
+      type: object
+      required: [currentPassword, newPassword, confirmPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 10
+        confirmPassword:
+          type: string
+
+    TempPasswordResponse:
+      type: object
+      required: [tempPassword]
+      properties:
+        tempPassword:
+          type: string
+
+    # ─── PRODUCT SCHEMAS ──────────────────────────────────────────
+    Product:
+      type: object
+      required: [id, sku, name, productLine, description, unitPriceCents, imageUrl, active]
+      properties:
+        id:
+          type: number
+        sku:
+          type: string
+        shopifyProductId:
+          type: ["string", "null"]
+        shopifyVariantId:
+          type: ["string", "null"]
+        name:
+          type: string
+        productLine:
+          type: string
+        description:
+          type: string
+        unitPriceCents:
+          type: number
+        imageUrl:
+          type: string
+        active:
+          type: boolean
+
+    # ─── HubSpot / CRM SCHEMAS ───────────────────────────────────
+    HsCompany:
+      type: object
+      required: [id, name, orgType, allowAdminBillingEdit]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        orgType:
+          type: string
+        allowAdminBillingEdit:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    HsBillingProfile:
+      type: object
+      required: [id, companyId, name, address1, city, state, zip, apEmail, paymentTerms, isDefault, validated]
+      properties:
+        id:
+          type: string
+        companyId:
+          type: string
+        name:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        apEmail:
+          type: string
+        apPhone:
+          type: ["string", "null"]
+        paymentTerms:
+          type: string
+        netDays:
+          type: ["integer", "null"]
+        isDefault:
+          type: boolean
+        validated:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+        usedByLocationCount:
+          type: number
+
+    HsLocation:
+      type: object
+      required: [id, companyId, billingProfileId, nickname, address1, city, state, zip, isDefault, validated]
+      properties:
+        id:
+          type: string
+        companyId:
+          type: string
+        billingProfileId:
+          type: string
+        nickname:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        phone:
+          type: ["string", "null"]
+        isDefault:
+          type: boolean
+        validated:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+        validationSource:
+          type: string
+        billingProfile:
+          $ref: "#/components/schemas/HsBillingProfile"
+
+    HsContact:
+      type: object
+      required: [id, companyId, firstName, lastName, roleTitle, isActive]
+      properties:
+        id:
+          type: string
+        companyId:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        roleTitle:
+          type: string
+        isActive:
+          type: boolean
+        emails:
+          type: array
+          items:
+            $ref: "#/components/schemas/HsContactEmail"
+        hasPortalAccount:
+          type: boolean
+        portalUsername:
+          type: ["string", "null"]
+
+    HsContactEmail:
+      type: object
+      required: [id, email, isPrimary]
+      properties:
+        id:
+          type: number
+        email:
+          type: string
+        isPrimary:
+          type: boolean
+
+    # ─── PLACES SCHEMAS ───────────────────────────────────────────
+    PlacePrediction:
+      type: object
+      required: [placeId, description]
+      properties:
+        placeId:
+          type: string
+        description:
+          type: string
+        mainText:
+          type: string
+        secondaryText:
+          type: string
+
+    PlaceDetails:
+      type: object
+      required: [placeId, address1, city, state, zip]
+      properties:
+        placeId:
+          type: string
+        address1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+
+    # ─── ORDER SCHEMAS ────────────────────────────────────────────
+    OrderItem:
+      type: object
+      required: [id, productId, skuSnapshot, nameSnapshot, quantity, unitPriceCents, lineTotalCents]
+      properties:
+        id:
+          type: number
+        productId:
+          type: number
+        skuSnapshot:
+          type: string
+        nameSnapshot:
+          type: string
+        quantity:
+          type: number
+        unitPriceCents:
+          type: number
+        lineTotalCents:
+          type: number
+
+    OrderSummary:
+      type: object
+      required: [id, orderNumber, hubspotCompanyId, hubspotLocationId, poNumber, status, paymentStatus, subtotalCents, shippingCents, totalCents, orderedAt]
+      properties:
+        id:
+          type: number
+        orderNumber:
+          type: string
+        hubspotCompanyId:
+          type: string
+        hubspotLocationId:
+          type: string
+        hubspotContactId:
+          type: string
+        portalUserId:
+          type: number
+        placedByRole:
+          type: string
+        poNumber:
+          type: string
+        status:
+          type: string
+        paymentStatus:
+          type: string
+        subtotalCents:
+          type: number
+        shippingCents:
+          type: number
+        totalCents:
+          type: number
+        orderedAt:
+          type: string
+          format: date-time
+        shopifyOrderNumber:
+          type: ["string", "null"]
+        hubspotPoId:
+          type: ["string", "null"]
+        hubspotPoStatus:
+          type: string
+        locationNickname:
+          type: ["string", "null"]
+        orderedByUsername:
+          type: ["string", "null"]
+        orgName:
+          type: ["string", "null"]
+        itemCount:
+          type: number
+
+    OrderDetail:
+      type: object
+      required: [id, orderNumber, poNumber, status, paymentStatus, subtotalCents, shippingCents, totalCents, orderedAt, shipSnapshot, billingSnapshot, paymentTermsSnapshot, items]
+      properties:
+        id:
+          type: number
+        orderNumber:
+          type: string
+        hubspotCompanyId:
+          type: string
+        hubspotLocationId:
+          type: string
+        hubspotContactId:
+          type: string
+        portalUserId:
+          type: number
+        placedByRole:
+          type: string
+        poNumber:
+          type: string
+        orderNotes:
+          type: ["string", "null"]
+        status:
+          type: string
+        paymentStatus:
+          type: string
+        subtotalCents:
+          type: number
+        shippingCents:
+          type: number
+        totalCents:
+          type: number
+        orderedAt:
+          type: string
+          format: date-time
+        shipSnapshot:
+          type: object
+          additionalProperties: true
+        billingSnapshot:
+          type: object
+          additionalProperties: true
+        paymentTermsSnapshot:
+          type: string
+        netDaysSnapshot:
+          type: ["integer", "null"]
+        shopifyOrderId:
+          type: ["string", "null"]
+        shopifyOrderNumber:
+          type: ["string", "null"]
+        hubspotPoId:
+          type: ["string", "null"]
+        hubspotPoStatus:
+          type: string
+        orderedByUsername:
+          type: ["string", "null"]
+        orgName:
+          type: ["string", "null"]
+        locationNickname:
+          type: ["string", "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+
+    OrderListResponse:
+      type: object
+      required: [orders, total, page, limit]
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+
+    OrderItemInput:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: number
+        quantity:
+          type: number
+          minimum: 1
+
+    OrderInput:
+      type: object
+      required: [hubspotLocationId, billingProfileId, poNumber, items]
+      properties:
+        hubspotLocationId:
+          type: string
+        billingProfileId:
+          type: string
+        poNumber:
+          type: string
+          maxLength: 40
+        orderNotes:
+          type: string
+          maxLength: 500
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItemInput"
+          minItems: 1
+        mockCardName:
+          type: ["string", "null"]
+        mockCardNumber:
+          type: ["string", "null"]
+        mockCardExpiry:
+          type: ["string", "null"]
+        mockCardCvc:
+          type: ["string", "null"]
+
+    OrderCreatedResponse:
+      type: object
+      required: [orderId, orderNumber]
+      properties:
+        orderId:
+          type: number
+        orderNumber:
+          type: string
+
+    OrderStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    # ─── DASHBOARD SCHEMAS ───────────────────────────────────────
+    DashboardData:
+      type: object
+      required: [ordersThisYear, lastOrderDate, defaultLocationNickname, recentOrders, quickReorderProducts]
+      properties:
+        ordersThisYear:
+          type: number
+        lastOrderDate:
+          type: ["string", "null"]
+        defaultLocationNickname:
+          type: ["string", "null"]
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+        quickReorderProducts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+
+    AdminDashboardData:
+      type: object
+      required: [totalOrgs, totalPortalUsers, ordersThisMonth, revenueThisMonthCents, pendingLocationRequests, recentOrders]
+      properties:
+        totalOrgs:
+          type: number
+        totalPortalUsers:
+          type: number
+        ordersThisMonth:
+          type: number
+        revenueThisMonthCents:
+          type: number
+        pendingLocationRequests:
+          type: number
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+
+    # ─── ACCOUNT SCHEMAS ─────────────────────────────────────────
+    AccountProfile:
+      type: object
+      required: [userId, username, roleKey, roleLabel, firstName, lastName, roleTitle, orgName, locationAccess, contact]
+      properties:
+        userId:
+          type: number
+        username:
+          type: string
+        roleKey:
+          type: string
+        roleLabel:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        roleTitle:
+          type: string
+        orgName:
+          type: string
+        locationAccess:
+          type: array
+          items:
+            type: string
+        contact:
+          $ref: "#/components/schemas/HsContact"
+
+    # ─── LOCATION REQUEST SCHEMAS ────────────────────────────────
+    LocationRequest:
+      type: object
+      required: [id, hubspotCompanyId, requestedByUserId, nickname, address1, city, state, zip, status, createdAt]
+      properties:
+        id:
+          type: number
+        hubspotCompanyId:
+          type: string
+        requestedByUserId:
+          type: number
+        requestedByUsername:
+          type: ["string", "null"]
+        nickname:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        phone:
+          type: ["string", "null"]
+        validated:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+        status:
+          type: string
+        resolvedBy:
+          type: ["string", "null"]
+        resolvedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        orgName:
+          type: ["string", "null"]
+
+    LocationRequestInput:
+      type: object
+      required: [nickname, address1, city, state, zip]
+      properties:
+        nickname:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+          minLength: 2
+          maxLength: 2
+        zip:
+          type: string
+        phone:
+          type: ["string", "null"]
+        placeId:
+          type: ["string", "null"]
+        validated:
+          type: boolean
+
+    ApproveLocationRequestInput:
+      type: object
+      required: [billingProfileId]
+      properties:
+        billingProfileId:
+          type: string
+        isDefault:
+          type: boolean
+
+    RejectLocationRequestInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    # ─── TEAM SCHEMAS ─────────────────────────────────────────────
+    TeamUser:
+      type: object
+      required: [id, username, roleKey, roleLabel, isActive, hubspotContactId]
+      properties:
+        id:
+          type: number
+        username:
+          type: string
+        roleKey:
+          type: string
+        roleLabel:
+          type: string
+        isActive:
+          type: boolean
+        mustChangePassword:
+          type: boolean
+        lastLoginAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        hubspotContactId:
+          type: string
+        firstName:
+          type: ["string", "null"]
+        lastName:
+          type: ["string", "null"]
+        roleTitle:
+          type: ["string", "null"]
+        locationAccess:
+          type: array
+          items:
+            type: string
+        locationAccessCount:
+          type: ["integer", "null"]
+        totalLocations:
+          type: ["integer", "null"]
+
+    TeamUserInput:
+      type: object
+      required: [username, roleKey, hubspotContactId]
+      properties:
+        hubspotContactId:
+          type: string
+        newContactFirst:
+          type: ["string", "null"]
+        newContactLast:
+          type: ["string", "null"]
+        newContactRoleTitle:
+          type: ["string", "null"]
+        newContactEmail:
+          type: ["string", "null"]
+        username:
+          type: string
+        roleKey:
+          type: string
+        locationIds:
+          type: array
+          items:
+            type: string
+
+    TeamUserUpdate:
+      type: object
+      properties:
+        roleKey:
+          type: string
+        isActive:
+          type: boolean
+        locationIds:
+          type: array
+          items:
+            type: string
+
+    # ─── CONTACT SCHEMAS ─────────────────────────────────────────
+    ContactInput:
+      type: object
+      required: [firstName, lastName, roleTitle, email]
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        roleTitle:
+          type: string
+        email:
+          type: string
+          
+
+    ContactUpdate:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        roleTitle:
+          type: string
+        isActive:
+          type: boolean
+
+    # ─── LOCATION SCHEMAS ────────────────────────────────────────
+    LocationInput:
+      type: object
+      required: [nickname, address1, city, state, zip, billingProfileId]
+      properties:
+        nickname:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        phone:
+          type: ["string", "null"]
+        billingProfileId:
+          type: string
+        isDefault:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+        validated:
+          type: boolean
+
+    LocationUpdate:
+      type: object
+      properties:
+        nickname:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        phone:
+          type: ["string", "null"]
+        billingProfileId:
+          type: string
+        isDefault:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+        validated:
+          type: boolean
+
+    # ─── BILLING SCHEMAS ─────────────────────────────────────────
+    BillingPageData:
+      type: object
+      required: [profiles, allowAdminBillingEdit]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/HsBillingProfile"
+        allowAdminBillingEdit:
+          type: boolean
+
+    BillingProfileInput:
+      type: object
+      required: [name, address1, city, state, zip, apEmail, paymentTerms]
+      properties:
+        name:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        apEmail:
+          type: string
+        apPhone:
+          type: ["string", "null"]
+        paymentTerms:
+          type: string
+        netDays:
+          type: ["integer", "null"]
+        isDefault:
+          type: boolean
+        placeId:
+          type: ["string", "null"]
+
+    BillingProfileUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: ["string", "null"]
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        apEmail:
+          type: string
+        apPhone:
+          type: ["string", "null"]
+        paymentTerms:
+          type: string
+        netDays:
+          type: ["integer", "null"]
+        isDefault:
+          type: boolean
+
+    # ─── ADMIN ORG SCHEMAS ────────────────────────────────────────
+    OrgSummary:
+      type: object
+      required: [id, name, orgType, allowAdminBillingEdit]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        orgType:
+          type: string
+        allowAdminBillingEdit:
+          type: boolean
+        locationCount:
+          type: number
+        userCount:
+          type: number
+        orderCount:
+          type: number
+        lifetimeRevenueCents:
+          type: number
+        termsSummary:
+          type: string
+
+    OrgListResponse:
+      type: object
+      required: [orgs, total, page]
+      properties:
+        orgs:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrgSummary"
+        total:
+          type: number
+        page:
+          type: number
+
+    OrgDetail:
+      type: object
+      required: [company, locationCount, userCount, orderCount, lifetimeRevenueCents]
+      properties:
+        company:
+          $ref: "#/components/schemas/HsCompany"
+        locationCount:
+          type: number
+        userCount:
+          type: number
+        orderCount:
+          type: number
+        lifetimeRevenueCents:
+          type: number
+        ordersThisMonth:
+          type: number
+
+    OrgUpdate:
+      type: object
+      properties:
+        orgType:
+          type: string
+        allowAdminBillingEdit:
+          type: boolean
+
+    # ─── ONBOARDING SCHEMAS ──────────────────────────────────────
+    OnboardInput:
+      type: object
+      required: [orgName, orgType, billingName, billingAddress1, billingCity, billingState, billingZip, billingApEmail, billingPaymentTerms, locationNickname, locationAddress1, locationCity, locationState, locationZip, contactFirst, contactLast, contactRoleTitle, contactEmail, username]
+      properties:
+        orgName:
+          type: string
+        orgType:
+          type: string
+        billingName:
+          type: string
+        billingAddress1:
+          type: string
+        billingAddress2:
+          type: ["string", "null"]
+        billingCity:
+          type: string
+        billingState:
+          type: string
+        billingZip:
+          type: string
+        billingApEmail:
+          type: string
+        billingApPhone:
+          type: ["string", "null"]
+        billingPaymentTerms:
+          type: string
+        billingNetDays:
+          type: ["integer", "null"]
+        billingPlaceId:
+          type: ["string", "null"]
+        locationNickname:
+          type: string
+        locationAddress1:
+          type: string
+        locationAddress2:
+          type: ["string", "null"]
+        locationCity:
+          type: string
+        locationState:
+          type: string
+        locationZip:
+          type: string
+        locationPhone:
+          type: ["string", "null"]
+        locationPlaceId:
+          type: ["string", "null"]
+        contactFirst:
+          type: string
+        contactLast:
+          type: string
+        contactRoleTitle:
+          type: string
+        contactEmail:
+          type: string
+          
+        username:
+          type: string
+
+    OnboardResult:
+      type: object
+      required: [companyId, billingProfileId, locationId, contactId, portalUserId, username, tempPassword]
+      properties:
+        companyId:
+          type: string
+        billingProfileId:
+          type: string
+        locationId:
+          type: string
+        contactId:
+          type: string
+        portalUserId:
+          type: number
+        username:
+          type: string
+        tempPassword:
+          type: string
+
+    # ─── ADMIN LOG SCHEMAS ───────────────────────────────────────
+    IntegrationLogEntry:
+      type: object
+      required: [id, system, operation, direction, payloadJson, createdAt]
+      properties:
+        id:
+          type: number
+        orderId:
+          type: ["integer", "null"]
+        orderNumber:
+          type: ["string", "null"]
+        system:
+          type: string
+        operation:
+          type: string
+        direction:
+          type: string
+        payloadJson:
+          type: object
+          additionalProperties: true
+        resultJson:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        orgName:
+          type: ["string", "null"]
+
+    IntegrationLogListResponse:
+      type: object
+      required: [entries, total, page, limit]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegrationLogEntry"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+
+    EmailLogEntry:
+      type: object
+      required: [id, toAddress, subject, bodyText, category, createdAt]
+      properties:
+        id:
+          type: number
+        toAddress:
+          type: string
+        ccAddress:
+          type: ["string", "null"]
+        subject:
+          type: string
+        bodyText:
+          type: string
+        category:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    EmailLogListResponse:
+      type: object
+      required: [entries, total, page, limit]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailLogEntry"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+
+    # ─── IDENTITY RESOLVER ────────────────────────────────────────
+    IdentityResult:
+      type: object
+      required: [found]
+      properties:
+        found:
+          type: boolean
+        contact:
+          $ref: "#/components/schemas/HsContact"
+        company:
+          $ref: "#/components/schemas/HsCompany"
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/HsLocation"
+        portalUser:
+          $ref: "#/components/schemas/TeamUser"
+        matchedEmail:
+          type: ["string", "null"]
+        nearMatches:
+          type: array
+          items:
+            $ref: "#/components/schemas/HsContact"
+
+    # ─── ADMIN USER SCHEMAS ──────────────────────────────────────
+    AdminUser:
+      type: object
+      required: [id, name, email, isActive]
+      properties:
+        id:
+          type: number
+        name:
+          type: string
+        email:
+          type: string
+        isActive:
+          type: boolean
+        lastLoginAt:
+          type: ["string", "null"]
+
+    AdminUserInput:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          
+        password:
+          type: string
+          minLength: 10
+
+    AdminUserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        isActive:
+          type: boolean

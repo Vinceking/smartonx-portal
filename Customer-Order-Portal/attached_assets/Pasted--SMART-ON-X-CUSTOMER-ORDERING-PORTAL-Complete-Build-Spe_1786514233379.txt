@@ -1,0 +1,842 @@
+# SMART ON X — CUSTOMER ORDERING PORTAL
+# Complete Build Specification v1.0 (Epic / Stories / Sprints)
+
+**Owner:** Vinny King · **Staff stakeholder:** Rachelle (Smart On X)
+**Target:** Replit Agent prototype, fully functional on mock data
+**Architecture decision of record:** HubSpot is the LIVE system of record for CRM
+entities (companies, locations, contacts, billing profiles) — the portal QUERIES
+it at read time via a service layer. For the prototype, a "mock HubSpot" backing
+store stands in behind identical function signatures. Shopify owns transactions.
+The portal database holds ONLY auth, permissions, orders, and logs.
+
+---
+
+# ⛔ SECTION 0 — ANTI-VAPORWARE RULES (paste into EVERY Replit prompt)
+
+Replit Agent tends to build beautiful non-functional shells. These rules are
+non-negotiable and apply to every story:
+
+```
+FUNCTIONALITY RULES — VIOLATIONS = STORY REJECTED:
+R1. Every button, link, and form in this spec MUST perform its described
+    action against the database. No dead buttons, no alert('coming soon'),
+    no console.log-only handlers, no href="#".
+R2. No hardcoded display data in components. Every table, card, dropdown,
+    and stat renders from a database query or the hubspot service layer.
+    If seed data changes, the UI must change.
+R3. All forms: server-side validation (client-side is a bonus, not a
+    substitute). Invalid submits return field-level errors rendered inline.
+R4. All role restrictions enforced SERVER-SIDE in the route/API handler
+    (return 403 JSON + friendly UI state). Hiding a button is not security.
+R5. Every list page has a real empty state ("No orders yet" + CTA) and a
+    loading state. Verify empty states by testing with a fresh org.
+R6. Every write operation must be verifiable: after submit, the new/changed
+    record must appear in the relevant list AND in the database.
+R7. Session auth on every /portal and /admin route. Manually hitting a URL
+    while logged out redirects to the correct login page. Purchaser hitting
+    an admin URL gets 403, not a broken page.
+R8. Money stored as integer cents everywhere. Render with a single
+    formatCurrency() helper. No floating point math on money.
+R9. All timestamps stored UTC (timestamptz), rendered in America/Denver.
+R10. Seed script must be idempotent (npm run seed wipes and rebuilds) and
+     the README must list every demo credential.
+R11. At the end of each sprint, run the sprint's QA CHECKLIST (included
+     below) and fix failures before declaring done.
+```
+
+---
+
+# SECTION 1 — EPIC DEFINITION
+
+**EPIC:** B2B customer ordering portal for Smart On X that (a) authenticates
+dentists / prosthodontists / lab staff independently of email address,
+(b) lets them order products with pre-verified shipping/billing data resolved
+live from HubSpot, (c) pushes orders to Shopify with canonical data + HubSpot
+IDs attached, (d) writes a linked PO record back to HubSpot, and (e) gives
+Smart On X staff (Rachelle) a God-mode console to onboard and manage every
+organization, user, location, and billing profile.
+
+**Problem being solved:** The standard Shopify↔HubSpot integration keys on
+email. New or misspelled emails ("First St" vs "1st St", doctor's gmail vs
+office email) create orphan contacts and orders that never associate to the
+Organization or Location custom object. This portal makes the *account* the
+identity anchor and makes every address a *selected, validated record* rather
+than typed text.
+
+**Personas:**
+| Persona | Role key | Example |
+|---|---|---|
+| Front-desk / office manager who orders | purchaser | Maria at a 1-location practice |
+| DSO regional manager | regional_admin | Covers 2 of 5 Summit Smiles locations |
+| Practice owner / lab manager | org_admin | Dr. Chen; lab GM |
+| Smart On X staff | staff (God mode) | Rachelle |
+
+**Out of scope for this prototype (phase 2+):** real HubSpot/Shopify/USPS
+credentials, real email sending, real payments, HubSpot-side workflow tasks,
+two-way HubSpot webhooks, SSO.
+
+---
+
+# SECTION 2 — TECH STACK & PROJECT STRUCTURE
+
+```
+Stack: Next.js 14+ (App Router) · TypeScript · Tailwind CSS · Postgres
+       (Replit built-in) · Drizzle ORM · iron-session (HTTP-only cookie
+       sessions) · bcryptjs · zod (validation)
+
+/lib
+  /db            schema.ts (Drizzle), seed.ts, queries/
+  /integrations
+    hubspot.ts         <- ONLY access path to CRM data (mock now, real later)
+    hubspot-mock-db.ts <- pretend-HubSpot backing store (hs_* tables)
+    shopify.ts         <- draft order payload builder (mock)
+    mailer.ts          <- email builder (mock -> email_log)
+    places.ts          <- address autocomplete (Google Places or mock)
+  /auth          session.ts, requireRole.ts
+/app
+  / (public)  /login /forgot-username /forgot-password /reset-password
+  /portal ... (customer app)
+  /admin  ... (staff God-mode app, separate session cookie)
+Env vars: HUBSPOT_MODE=mock, SHOPIFY_MODE=mock, MAIL_MODE=mock,
+          GOOGLE_PLACES_API_KEY (optional; places.ts falls back to mock),
+          SESSION_SECRET, ADMIN_SEED_PASSWORD
+```
+
+---
+
+# SECTION 3 — DATABASE SCHEMA (EXACT)
+
+## 3A. Portal-owned tables (Postgres via Drizzle)
+
+```sql
+-- ===== AUTH & PERMISSIONS =====
+CREATE TABLE roles (
+  id            serial PRIMARY KEY,
+  key           text UNIQUE NOT NULL,          -- 'purchaser' | 'regional_admin' | 'org_admin'
+  label         text NOT NULL,
+  description   text NOT NULL
+);
+
+CREATE TABLE portal_users (
+  id                   serial PRIMARY KEY,
+  hubspot_contact_id   text NOT NULL,           -- pointer into HubSpot (mock: 'hs-c-###')
+  hubspot_company_id   text NOT NULL,           -- pointer into HubSpot (mock: 'hs-o-###')
+  username             text UNIQUE NOT NULL,    -- lowercase, 3-30 chars, [a-z0-9._-]
+  password_hash        text NOT NULL,           -- bcrypt, cost 10
+  role_id              int NOT NULL REFERENCES roles(id),
+  must_change_password boolean NOT NULL DEFAULT false,
+  is_active            boolean NOT NULL DEFAULT true,
+  last_login_at        timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE user_location_access (            -- purchasers & regional_admins only
+  id                  serial PRIMARY KEY,
+  portal_user_id      int NOT NULL REFERENCES portal_users(id) ON DELETE CASCADE,
+  hubspot_location_id text NOT NULL,            -- pointer into HubSpot location object
+  can_order           boolean NOT NULL DEFAULT true,
+  UNIQUE (portal_user_id, hubspot_location_id)
+);
+-- RULE: org_admins have implicit access to ALL company locations; no rows here.
+
+CREATE TABLE password_reset_tokens (
+  id             serial PRIMARY KEY,
+  portal_user_id int NOT NULL REFERENCES portal_users(id) ON DELETE CASCADE,
+  token          text UNIQUE NOT NULL,          -- 32-byte random hex
+  expires_at     timestamptz NOT NULL,          -- now() + 1 hour
+  used_at        timestamptz
+);
+
+CREATE TABLE admin_users (                     -- Smart On X staff (God mode)
+  id            serial PRIMARY KEY,
+  name          text NOT NULL,
+  email         text UNIQUE NOT NULL,
+  password_hash text NOT NULL,
+  is_active     boolean NOT NULL DEFAULT true,
+  last_login_at timestamptz
+);
+
+-- ===== COMMERCE =====
+CREATE TABLE products (
+  id                  serial PRIMARY KEY,
+  sku                 text UNIQUE NOT NULL,
+  shopify_product_id  text,                     -- null in mock
+  shopify_variant_id  text,
+  name                text NOT NULL,
+  product_line        text NOT NULL,            -- 'Omnibut'|'Rapid Arches'|'Rapid Set Pickup Acrylic'|'SimpleTemp'|'Smart Denture Conversions'
+  description         text NOT NULL,
+  unit_price_cents    int NOT NULL CHECK (unit_price_cents >= 0),
+  image_url           text NOT NULL,            -- placeholder images ok
+  active              boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE orders (
+  id                       serial PRIMARY KEY,
+  order_number             text UNIQUE NOT NULL,       -- 'SOX-' + zero-padded seq, e.g. SOX-001042
+  hubspot_company_id       text NOT NULL,
+  hubspot_location_id      text NOT NULL,
+  hubspot_contact_id       text NOT NULL,              -- contact of the placing user
+  portal_user_id           int NOT NULL REFERENCES portal_users(id),
+  placed_by_role           text NOT NULL,
+  po_number                text NOT NULL,
+  order_notes              text,
+  -- SNAPSHOTS (immutable copies taken at submit time; NEVER re-resolved):
+  ship_snapshot            jsonb NOT NULL,  -- {nickname,address1,address2,city,state,zip,phone}
+  billing_snapshot         jsonb NOT NULL,  -- {profile_name,address1,address2,city,state,zip,ap_email,ap_phone}
+  payment_terms_snapshot   text NOT NULL,   -- 'card_at_checkout' | 'net_terms'
+  net_days_snapshot        int,
+  payment_status           text NOT NULL,   -- 'paid' | 'terms_net'
+  subtotal_cents           int NOT NULL,
+  shipping_cents           int NOT NULL,    -- flat 1500; 0 when subtotal >= 50000
+  total_cents              int NOT NULL,
+  status                   text NOT NULL DEFAULT 'submitted',
+                           -- 'submitted'|'processing'|'shipped'|'delivered'|'cancelled'
+  shopify_order_id         text,            -- from mock shopify service
+  shopify_order_number     text,            -- 'SX-#####'
+  hubspot_po_id            text,            -- from mock hubspot PO create
+  hubspot_po_status        text NOT NULL DEFAULT 'pending',  -- 'pending'|'synced'|'error'
+  ordered_at               timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE order_items (
+  id               serial PRIMARY KEY,
+  order_id         int NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id       int NOT NULL REFERENCES products(id),
+  sku_snapshot     text NOT NULL,
+  name_snapshot    text NOT NULL,
+  quantity         int NOT NULL CHECK (quantity > 0),
+  unit_price_cents int NOT NULL,
+  line_total_cents int NOT NULL
+);
+
+-- ===== WORKFLOW & LOGS =====
+CREATE TABLE location_requests (
+  id                   serial PRIMARY KEY,
+  hubspot_company_id   text NOT NULL,
+  requested_by_user_id int NOT NULL REFERENCES portal_users(id),
+  nickname             text NOT NULL,
+  address1             text NOT NULL,
+  address2             text,
+  city                 text NOT NULL,
+  state                text NOT NULL,           -- 2-letter
+  zip                  text NOT NULL,
+  phone                text,
+  validated            boolean NOT NULL DEFAULT false,
+  place_id             text,
+  status               text NOT NULL DEFAULT 'pending',  -- 'pending'|'approved'|'rejected'
+  resolved_by          text,                    -- 'org_admin:{id}' or 'staff:{id}'
+  resolved_at          timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE email_log (
+  id          serial PRIMARY KEY,
+  to_address  text NOT NULL,
+  cc_address  text,
+  subject     text NOT NULL,
+  body_text   text NOT NULL,
+  category    text NOT NULL,   -- 'location_request'|'welcome'|'password_reset'|'order_confirmation'|'username_reminder'
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE integration_log (
+  id          serial PRIMARY KEY,
+  order_id    int REFERENCES orders(id),
+  system      text NOT NULL,     -- 'shopify' | 'hubspot'
+  operation   text NOT NULL,     -- e.g. 'draftOrderCreate','po.create','company.create','location.create','contact.create','location.update'
+  direction   text NOT NULL DEFAULT 'outbound',
+  payload_json jsonb NOT NULL,   -- the EXACT real-API-shaped payload
+  result_json  jsonb,            -- mock response incl. generated ids
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+```
+
+## 3B. Mock-HubSpot backing store (hs_* tables — stands in for the live CRM)
+
+These tables are ONLY touched through /lib/integrations/hubspot.ts. No page,
+API route, or component may query them directly. (Add an ESLint-comment or
+folder-level note enforcing this.) When real HubSpot arrives, these tables are
+deleted and hubspot.ts is reimplemented — nothing else changes.
+
+```sql
+CREATE TABLE hs_companies (
+  id         text PRIMARY KEY,        -- 'hs-o-001'
+  name       text NOT NULL,
+  org_type   text NOT NULL,           -- 'dental_practice'|'lab'|'dso'
+  allow_admin_billing_edit boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE hs_billing_profiles (
+  id            text PRIMARY KEY,     -- 'hs-b-001'
+  company_id    text NOT NULL REFERENCES hs_companies(id),
+  name          text NOT NULL,        -- 'Main Corporate Billing'
+  address1      text NOT NULL,
+  address2      text,
+  city          text NOT NULL,
+  state         text NOT NULL,
+  zip           text NOT NULL,
+  ap_email      text NOT NULL,
+  ap_phone      text,
+  payment_terms text NOT NULL,        -- 'card_at_checkout'|'net_terms'
+  net_days      int,                  -- 30/45; NULL when card
+  is_default    boolean NOT NULL DEFAULT false,
+  validated     boolean NOT NULL DEFAULT true,
+  place_id      text
+);
+
+CREATE TABLE hs_locations (
+  id                 text PRIMARY KEY,   -- 'hs-l-001'
+  company_id         text NOT NULL REFERENCES hs_companies(id),
+  billing_profile_id text NOT NULL REFERENCES hs_billing_profiles(id),
+  nickname           text NOT NULL,
+  address1           text NOT NULL,
+  address2           text,
+  city               text NOT NULL,
+  state              text NOT NULL,
+  zip                text NOT NULL,
+  phone              text,
+  is_default         boolean NOT NULL DEFAULT false,
+  validated          boolean NOT NULL DEFAULT true,
+  place_id           text,
+  validation_source  text NOT NULL DEFAULT 'mock'  -- 'google_places'|'manual'|'mock'
+);
+
+CREATE TABLE hs_contacts (
+  id          text PRIMARY KEY,       -- 'hs-c-001'
+  company_id  text NOT NULL REFERENCES hs_companies(id),
+  first_name  text NOT NULL,
+  last_name   text NOT NULL,
+  role_title  text NOT NULL,          -- 'Dentist'|'Prosthodontist'|'Lab Manager'|'Office Manager'|'Assistant'|'Regional Manager'
+  is_active   boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE hs_contact_emails (       -- models HubSpot primary+additional emails
+  id         serial PRIMARY KEY,
+  contact_id text NOT NULL REFERENCES hs_contacts(id) ON DELETE CASCADE,
+  email      text UNIQUE NOT NULL,    -- store lowercase
+  is_primary boolean NOT NULL DEFAULT false
+);
+```
+
+## 3C. HubSpot service layer contract (exact signatures)
+
+```typescript
+// /lib/integrations/hubspot.ts — the ONLY door to CRM data
+export interface HubSpotService {
+  // READS (portal pages call these live, with 5-min session cache)
+  getCompany(id: string): Promise<HsCompany>;
+  listLocationsByCompany(companyId: string): Promise<HsLocation[]>;
+  getLocation(id: string): Promise<HsLocation>;
+  listBillingProfilesByCompany(companyId: string): Promise<HsBillingProfile[]>;
+  getBillingProfile(id: string): Promise<HsBillingProfile>;
+  listContactsByCompany(companyId: string): Promise<HsContactWithEmails[]>;
+  getContact(id: string): Promise<HsContactWithEmails>;
+  searchContactByEmail(email: string): Promise<HsContactWithEmails | null>; // exact, case-insensitive
+  // WRITES (log real-API payload shape to integration_log; return created ids)
+  createCompany(data): Promise<{id: string}>;
+  createBillingProfile(companyId, data): Promise<{id: string}>;
+  createLocation(companyId, billingProfileId, data): Promise<{id: string}>;
+  updateLocation(id, data): Promise<void>;
+  createContact(companyId, data): Promise<{id: string}>;
+  addContactEmail(contactId, email, isPrimary): Promise<void>;
+  updateBillingProfile(id, data): Promise<void>;
+  createPurchaseOrder(order, shopifyResult): Promise<{id: string}>; // Deal/custom-object payload w/ v4 associations to contact+company+location
+}
+// Payload shapes in integration_log must mirror HubSpot CRM v3:
+// { properties: {...}, associations: [{ to: {id}, types: [{associationCategory:
+//   "USER_DEFINED", associationTypeId: <n>}] }] }
+```
+
+---
+
+# SECTION 4 — SEED DATA SPECIFICATION (EXACT — 10 ORGANIZATIONS)
+
+Seed script requirements: idempotent; passwords all bcrypt of the listed
+plaintext; every listed record must exist verbatim; README lists all creds.
+Universal demo password: `DemoPass123!` (staff: `AdminDemo123!`).
+
+## 4A. Organizations, locations, billing, users
+
+| # | Organization (hs_companies) | Type | Locations (nickname — city, ST) | Billing profile(s) → terms | Portal users (username · role · location access) |
+|---|---|---|---|---|---|
+| 1 | Wasatch Implant & Prosthodontics | dental_practice | Main Office — Salt Lake City, UT (default); Lehi Office — Lehi, UT | Main Billing → net_terms/30 | `schen` · org_admin · all; `mruiz` · purchaser · Main Office only |
+| 2 | Precision Dental Lab | lab | Lab HQ — Provo, UT | Lab Billing → card_at_checkout | `tjohnson` · org_admin · all; `kpatel` · purchaser · Lab HQ |
+| 3 | Summit Smiles DSO | dso | Downtown SLC; Sandy; Ogden; Layton; St. George (default=Downtown) | Corporate AP → net_terms/30 (default); St. George Billing → card_at_checkout (St. George location only) | `dwallace` · org_admin · all; `rnorth` · regional_admin · Ogden+Layton; `jbeck` · purchaser · Ogden only |
+| 4 | Red Rock Oral Surgery | dental_practice | Clinic — St. George, UT | Clinic Billing → card_at_checkout | `alarsen` · org_admin · all |
+| 5 | Cache Valley Dental Arts | dental_practice | Office — Logan, UT | Office Billing → net_terms/30 | `bmiller` · org_admin · all; `sfoster` · purchaser · Office |
+| 6 | Alpine Prosthetics Lab | lab | Orem Lab (default); Denver Lab — Denver, CO | Alpine AP → net_terms/30 | `gkim` · org_admin · all; `lvasquez` · purchaser · Denver Lab only |
+| 7 | BrightPath Dental Group | dso | Mesa, AZ; Tempe, AZ; Scottsdale, AZ (default=Mesa) | BrightPath Corporate → net_terms/45; Scottsdale Billing → card_at_checkout | `hcarter` · org_admin · all; `pdiaz` · regional_admin · Tempe+Scottsdale; `wthompson` · purchaser · Mesa |
+| 8 | Dr. Nguyen Implant Center | dental_practice | Center — Boise, ID | Center Billing → card_at_checkout | `nnguyen` · org_admin · all |
+| 9 | Timpanogos Dental Lab | lab | Lab — Pleasant Grove, UT | Lab Billing → card_at_checkout | `eflores` · org_admin · all |
+| 10 | Frontier Dental Partners | dso | Cheyenne, WY; Casper, WY; Billings, MT; Bozeman, MT (default=Cheyenne) | Frontier AP → net_terms/45 | `omorgan` · org_admin · all; `csanders` · regional_admin · Billings+Bozeman; `ryoung` · purchaser · Cheyenne+Casper |
+
+Every portal user gets a matching hs_contact (name derived from username,
+sensible role_title) + primary email `{username}@{orgdomain}.com`.
+
+**Alias demo (must exist):** Dr. Sarah Chen (`schen`, org 1) has TWO emails in
+hs_contact_emails: `schen@wasatchimplant.com` (primary) AND
+`drchen.wasatch@gmail.com`. The admin identity resolver must resolve the gmail
+to her full chain.
+
+Also seed 3–5 extra non-login hs_contacts spread across orgs (dentists/
+assistants) so contact lists aren't 1:1 with users.
+
+**Staff:** admin_users: Rachelle (`rachelle@smartonx.com`) and Vinny
+(`vinny@smartonx.com`), password `AdminDemo123!`.
+
+## 4B. Products (exact 14 SKUs)
+
+| SKU | Name | Line | Price |
+|---|---|---|---|
+| OMN-EVAL-KIT | Omnibut Evaluation Kit | Omnibut | $495.00 |
+| OMN-MUA-30 | Omnibut 30° Multi-Unit Abutment | Omnibut | $189.00 |
+| OMN-SCREW-10 | Omnibut Prosthetic Screw 10-Pack | Omnibut | $95.00 |
+| OMN-DRIVER | Omnibut Driver Instrument | Omnibut | $135.00 |
+| RA-BL2-SET | Rapid Arches BL2 Complete Set | Rapid Arches | $1,850.00 |
+| RA-TRAYS | Rapid Arches Impression Trays | Rapid Arches | $240.00 |
+| RA-TRILOR | Trilor Bar | Rapid Arches | $310.00 |
+| RSA-VIAL-6 | Rapid Set Acrylic Pre-Dosed Vials 6-Pack | Rapid Set Pickup Acrylic | $168.00 |
+| RSA-REFILL | Rapid Set Acrylic Refill Bottles | Rapid Set Pickup Acrylic | $120.00 |
+| ST-DSF | SimpleTemp Direct Separable Fastener | SimpleTemp | $145.00 |
+| SDC-START | SDC Starter Kit | Smart Denture Conversions | $780.00 |
+| SDC-PARTS | SDC Part Pack | Smart Denture Conversions | $225.00 |
+| SDC-DAM-10 | Silicone Dam 10-Pack | Smart Denture Conversions | $65.00 |
+| SDC-TORQUE | SDC Torque Tool | Smart Denture Conversions | $155.00 |
+
+## 4C. Historical orders
+
+Seed exactly 25 orders spread across all 10 orgs (each org ≥1; Summit Smiles
+and BrightPath ≥4 each across different locations/users), dated within the
+last 120 days, statuses distributed: 3 submitted, 4 processing, 6 shipped,
+11 delivered, 1 cancelled. PO format `PO-2026-####` incrementing per org.
+1–4 line items each, correct math, correct snapshots, fake
+shopify_order_number `SX-10###`, hubspot_po_id `hs-po-###`,
+hubspot_po_status='synced'. Also seed 1 pending location_request (from
+`jbeck`, Summit Smiles, "Ogden North" address) and matching email_log row to
+rachelle@smartonx.com.
+
+---
+
+# SECTION 5 — PAGE-BY-PAGE FUNCTIONAL SPEC
+
+Legend: 🔒=auth required · 👤=role gate · Every page obeys Section 0 rules.
+
+## 5.1 Public homepage `/`
+Recreation of smartonx.com's homepage (clean rebuild, not scrape):
+- **Sticky nav:** "Smart On X" logotype left · menu: Shop (dropdown: Omnibut,
+  Rapid Arches, Rapid Set Pickup Acrylic, SimpleTemp, Smart Denture
+  Conversions, All Products), Training, About Us, Blog, Events, Contact Us
+  (all route to simple placeholder pages with the nav/footer intact) ·
+  **TOP-RIGHT: filled pill button "Log In" → /login.**
+- **Hero:** headline "All-on-X Made Easy." + subhead + buttons "Shop Now"
+  (→ placeholder catalog page rendering the 14 real products from DB) and
+  "Customer Portal Login" (→ /login).
+- **Product line grid:** 5 cards from a productLines constant, each with name,
+  1-line description, "Explore" link.
+- **Footer:** grouped placeholder links + © 2026.
+- Style: white bg, navy `#0B2545`-ish text, teal accent, rounded-xl cards,
+  generous whitespace, professional/clinical.
+
+## 5.2 `/login`
+Fields: "Username or email" (text, required) · Password (required, show/hide
+toggle). Actions: **Log In** → POST /api/auth/login:
+1. Normalize input to lowercase. If it contains "@": resolve via
+   `hubspot.searchContactByEmail()` → find portal_user by hubspot_contact_id.
+   Else match portal_users.username.
+2. Verify bcrypt; check is_active (inactive → "This account is disabled.
+   Contact your account administrator.").
+3. Wrong creds → single generic error "Invalid credentials." (no user
+   enumeration). Set session {userId, roleKey, hubspotContactId,
+   hubspotCompanyId}; update last_login_at.
+4. must_change_password=true → force redirect to /portal/change-password
+   before anything else.
+5. Else → /portal.
+Links: "Forgot username?" · "Forgot password?".
+**Demo panel** (collapsible): table of ALL demo logins from Section 4A with
+role labels, + note "Staff console: /admin".
+✅ QA: log in as `schen` via username, AND via `drchen.wasatch@gmail.com`
+(the alias) — both must work and land in the same account.
+
+## 5.3 `/forgot-username`
+Email field → POST: always show "If that email is on file, we've emailed the
+username to it." If matched (via searchContactByEmail → portal_user), write
+email_log row (category username_reminder, body contains the username).
+
+## 5.4 `/forgot-password` and `/reset-password`
+- Forgot: username-or-email field → if matched, create password_reset_tokens
+  row (1h expiry) + email_log (category password_reset, body contains reset
+  URL `/reset-password?token=...`). Always-generic success screen with a
+  demo-only link "(demo: open latest reset email in admin log)".
+- Reset: validates token (exists, unexpired, unused) else friendly error +
+  link back. New password ×2 (min 10 chars, 1 number, 1 letter; zod).
+  Success → mark token used, redirect /login with "Password updated" banner.
+
+## 5.5 Portal shell (all `/portal/*`) 🔒
+Left sidebar (top tabs <768px): Dashboard · New Order · Order History · My
+Locations · Account · [👤 org_admin, regional_admin: **Manage** section →
+Team, Contacts, Locations, Billing(org_admin only)]. Header: org name (live
+`hubspot.getCompany`), user name + role badge, cache "Refresh" icon
+(invalidates the 5-min session CRM cache), Log Out. Dismissible banner:
+"DEMO ENVIRONMENT — mock data, no real orders."
+**CRM data policy:** on login, fetch & session-cache company, locations,
+billing profiles, contacts (5-min TTL). Order submit ALWAYS re-fetches
+location + billing fresh, then snapshots onto the order.
+
+## 5.6 `/portal` Dashboard 🔒 (role-scoped)
+- Welcome header: "Welcome back, {first name}" + org name.
+- 3 stat cards (computed from orders visible to this role): Orders this year ·
+  Last order date · Default/primary location nickname.
+- **Recent Orders** table (last 5 visible to role): Order # · PO # · Date ·
+  Location · Total · Status badge · **Reorder** button (→ 5.9 wizard preloaded).
+- **Quick Reorder:** 4 most-frequently-ordered products for the visible scope
+  (GROUP BY product across visible orders); each card: image, name, price,
+  "Add to Order" → starts wizard with that item qty 1. Empty state if no
+  history: "No order history yet — browse the catalog."
+- Scope: purchaser = orders to their permitted locations; regional_admin =
+  assigned locations; org_admin = whole org.
+
+## 5.7 `/portal/orders` Order History 🔒
+Filters row: Status (select) · Location (select, role-scoped list) · Date
+range (from/to). Table: Order # · PO # · Date · Ordered By · Ship-To ·
+Items · Total · Status. Row click → detail. Pagination 20/page. Empty state.
+
+## 5.8 `/portal/orders/[id]` Detail 🔒
+403-style "Not found" if outside role scope. Sections:
+- Header: Order # + status badge + payment badge (paid=green / Net {n}=blue).
+- Ship-to card + Billing card (FROM SNAPSHOTS, labeled "as placed").
+- PO number, notes, ordered-by, placed date.
+- Line items table (sku, name, qty, unit, line total) + subtotal/shipping/total.
+- **Integration panel:** "Shopify: SX-10482 ✓" and "HubSpot PO: hs-po-021 ✓"
+  (or amber pending) — real values from the order row.
+- Buttons: **Reorder** (wizard preloaded: same items, same location if still
+  permitted & existing, else Step 1 fresh) · **Print** (print stylesheet:
+  hides nav, clean PO-style document).
+- `?placed=1` → success banner "Order submitted! Shopify order {num} created
+  and PO logged in HubSpot."
+
+## 5.9 `/portal/order/new` — Wizard 🔒 (THE core flow)
+Progress: ① Ship To ② Billing & PO ③ Products ④ Review [⑤ Payment if card].
+State in client store; Back never loses data; direct URL to a later step
+without prerequisites bounces to step 1.
+
+**Step 1 — Ship To.** Selectable location cards (live from hubspot service,
+role-filtered): nickname, full address, phone, "Default" + "✓ Verified"
+badges. Radio-select + **Continue** (disabled until selected). If the user
+has EXACTLY one permitted location: auto-select, render as confirmation card,
+skip straight to step 2 with an "editing disabled — one location on file"
+note. Link under grid: purchaser/regional_admin → "Need to ship somewhere
+new? Request a location" (opens 5.11 request modal; order continues
+meanwhile); org_admin → "Add a new location" (opens 5.13 add-location modal;
+on save, new card appears immediately).
+
+**Step 2 — Billing & PO.** Billing card auto-resolved from selected
+location's billing_profile (live fetch): profile name, address, AP email,
+terms line ("Net 30 — invoice to ap@…" or "Card payment at checkout").
+If org has >1 profile AND user is org_admin/regional_admin: select-only
+dropdown to switch profiles; purchasers see fixed card. **PO Number** text,
+required, max 40 chars, prefilled suggestion = org's last PO +1 (e.g.
+PO-2026-0418), editable. Optional Order Notes textarea (500 chars).
+Continue validates PO non-empty.
+
+**Step 3 — Products.** Collapsible sections per product line; search box
+filters by name/SKU live. Each row: image thumb, name, SKU, unit price,
+qty stepper (0–99, typed input allowed, invalid→1). **Cart summary** (right
+rail desktop / sticky bottom bar mobile): line count, each item w/ qty ×
+price, remove ✕, running subtotal, shipping preview ($15.00, FREE ≥ $500),
+total. Continue requires ≥1 item. Reorder/Quick-Reorder entry lands here
+preloaded.
+
+**Step 4 — Review.** Read-only: ship card, billing card, PO + notes, items
+table, totals. "Edit" links jump to each step. Submit button label depends
+on terms: net_terms → **"Submit Order — Net {n} Terms"**; card → **"Continue
+to Payment"**.
+
+**Step 5 — Payment (card orgs only).** Big amber banner "DEMO — no real
+charge". Fields: name on card, card number (any 13–19 digits), MM/YY, CVC —
+format-validated only. "Pay ${total} & Submit".
+
+**Submit → POST /api/orders (single transaction):**
+1. Server re-validates: role/location permission, products active, qty>0,
+   PO present.
+2. Fresh (cache-bypassed) `hubspot.getLocation` + `getBillingProfile` →
+   build snapshots.
+3. Recompute all money server-side from DB prices (ignore client totals).
+4. Insert order (payment_status: net→'terms_net', card→'paid') + items;
+   generate order_number.
+5. `shopify.createDraftOrder(order)` — mock builds REAL Admin GraphQL
+   `draftOrderCreate` payload: lineItems (variantId/sku/qty), shippingAddress,
+   billingAddress, email, note, customAttributes [{po_number},
+   {hubspot_company_id},{hubspot_location_id},{hubspot_contact_id}], tags
+   ["portal-order"], paymentTerms when net — logs to integration_log, returns
+   {id:'gid://mock/…', order_number:'SX-#####'} → stored on order.
+6. `hubspot.createPurchaseOrder(order, shopifyResult)` — CRM v3 create
+   payload with properties {po_number, shopify_order_id,
+   shopify_order_number, amount, order_date} + v4 associations to contact,
+   company, location → integration_log; store hubspot_po_id, status 'synced'.
+7. `mailer.orderConfirmation()` → email_log to user's primary email, CC
+   ap_email when net_terms.
+8. Return {orderId} → redirect `/portal/orders/{id}?placed=1`.
+✅ QA: verify AFTER one order: orders row + items rows + 2 integration_log
+rows + 1 email_log row all exist; totals recomputed correctly server-side.
+
+## 5.10 `/portal/locations` My Locations 🔒
+Role-scoped location cards (nickname, address, phone, badges, billing profile
+name + terms). purchaser/regional_admin: "Request a New Location" (5.11).
+org_admin: "Add Location" (5.13) + Edit per card.
+
+## 5.11 Request-a-Location modal (purchaser + regional_admin)
+Fields: Nickname* · Address line 1* wired to `places.ts` autocomplete
+(Google Places when GOOGLE_PLACES_API_KEY set; else mock list of ~8 sample
+addresses filtered as you type) — selecting a prediction fills+locks City,
+State, ZIP (read-only, with "wrong? edit manually" link that unlocks and sets
+validated=false) · Address line 2 (free text, "Suite, unit, floor") · Phone.
+Submit → location_requests row + email_log to rachelle@smartonx.com
+(subject: "New location request — {Org}", body: all fields + requester
+name/role) → toast "Request sent to Smart On X for verification." Requests
+by this org listed below the cards with status chips.
+
+## 5.12 `/portal/account` 🔒
+- Profile card: name, role_title, role badge, username, org.
+- **Email addresses:** list from hubspot.getContact (primary starred). "Add
+  email" input → validates format + global uniqueness (searchContactByEmail
+  must return null) → `hubspot.addContactEmail()` → list updates. This is
+  the user-facing alias feature.
+- Change password: current + new×2 (same policy as reset); verify bcrypt;
+  success toast.
+- Location access panel: read-only list of locations this user can order to
+  ("All locations" for org_admin) + "Ask your administrator to change this."
+
+## 5.13 `/portal/manage/*` 👤 org_admin (regional_admin where noted)
+**Team** (org_admin + regional_admin-scoped):
+- Table: Name · Username · Role · Access ("All locations" / "2 of 5") ·
+  Status · Last login · Actions.
+- **Add User** 3-step modal: ① pick existing hs_contact (dropdown of org
+  contacts without a portal account) OR create new inline (first, last,
+  role_title, email → createContact + addContactEmail) ② username (unique
+  check on blur) + auto-generated 14-char temp password with copy button;
+  must_change_password=true ③ role select (org_admin sees all three;
+  regional_admin can grant ONLY purchaser) + if purchaser/regional_admin:
+  location checkbox list (regional_admin's list limited to their own
+  locations; ≥1 required). Save → user row + access rows + welcome email_log.
+- Row actions: Edit access (checkbox modal) · Change role (org_admin only) ·
+  Reset password (new temp + must_change + email_log) · Deactivate/Reactivate.
+  Cannot deactivate self (server-enforced).
+**Contacts** (org_admin + regional_admin): list w/ emails; add contact; add
+alias email; edit name/title; Deactivate only — NO delete (order history
+integrity).
+**Locations** (org_admin full; regional_admin view+request only): cards +
+**Add Location** modal = 5.11 fields PLUS billing-profile select (default
+preselected) + is_default toggle → `hubspot.createLocation()` → card appears.
+Edit = nickname/phone/billing-profile freely; address changes re-open the
+autocomplete flow. **Pending requests** panel with Approve (→ createLocation
++ grant requester access + mark approved) / Reject (reason → email_log to
+requester).
+**Billing** (org_admin only): profile cards (name, address, AP email, terms,
+"used by N locations"). If org allow_admin_billing_edit=false: read-only +
+notice "Managed by Smart On X — contact rachelle@smartonx.com to change."
+If true: edit + add profile (autocomplete address flow) via
+hubspot.update/createBillingProfile.
+
+## 5.14–5.22 `/admin/*` — GOD-MODE STAFF CONSOLE 🔒(admin session, separate cookie)
+**5.14 `/admin/login`:** email+password vs admin_users. Session cookie name
+distinct from portal (`sox_admin`). All /admin/* redirect here when absent.
+**5.15 `/admin` Dashboard:** stat cards (Total orgs · Portal users · Orders
+this month · Revenue this month · Pending location requests ⚠ if >0) +
+5 most recent orders (all orgs) + quick links (Onboard New Organization,
+Location Requests, Integration Log).
+**5.16 `/admin/organizations`:** search + table: Name · Type · Locations # ·
+Users # · Orders # · Lifetime revenue · Terms summary ("Net 30"/"Card"/
+"Mixed") · Billing-edit flag toggle (live PATCH). Row → detail.
+**5.17 `/admin/organizations/[id]` — tabs:**
+- *Overview:* stats + org_type edit + allow_admin_billing_edit toggle.
+- *Locations:* full CRUD incl. autocomplete add/edit, set default,
+  re-link billing profile.
+- *Billing Profiles:* full CRUD + terms editing (card/net + days). Guard:
+  cannot delete a profile in use (server-checked, friendly error).
+- *Users:* everything an org_admin can do PLUS: create org_admins, change any
+  role, reset any password, edit any access, deactivate.
+- *Contacts:* full CRUD + alias emails.
+- *Orders:* org's orders; row expands: full detail + status-advance dropdown
+  (submitted→processing→shipped→delivered; cancel allowed from
+  submitted/processing) + inline integration_log payloads for that order.
+**5.18 `/admin/onboard` — Onboarding Wizard (flagship, 5 steps):**
+① Organization: name*, type*. ② Billing Profile: name* (default "Main
+Billing"), autocomplete address*, AP email*, AP phone, terms* (radio: Card at
+checkout / Net terms → days select 30/45/60), is_default=true. ③ First
+Location: nickname*, autocomplete address*, phone, billing profile
+auto-linked to ② (changeable), is_default=true. ④ Org Admin User: contact
+first*/last*/role_title*/email* → username* (uniqueness check) → generated
+temp password w/ copy → must_change_password=true. ⑤ Review & Launch: full
+summary → **Create Account** executes ONE transaction: createCompany →
+createBillingProfile → createLocation → createContact → addContactEmail →
+insert portal_user → welcome email_log (portal URL, username, temp password)
+→ success screen listing every created record WITH its hs-id and green
+"✓ Created in HubSpot" check, plus copyable credentials block. Wizard resumable
+via localStorage draft until launched.
+**5.19 `/admin/location-requests`:** pending table (org, requester,
+nickname, address, validated badge, age). Approve → billing-profile picker
+modal (org's profiles, default preselected) → createLocation + grant
+requester access + email_log approval note to requester. Reject → reason →
+email_log. History section below.
+**5.20 `/admin/orders`:** all orgs; filters (org, status, date, terms);
+status advance; CSV export button (real CSV of filtered set — R1 applies!).
+**5.21 `/admin/integration-log`:** table (time, system chip, operation,
+order #, org) → row expands pretty-printed payload_json + result_json with
+copy button. Filter by system + operation. THIS is the payload-validation
+tool for phase 2.
+**5.22 `/admin/email-log`:** table (time, category chip, to, subject) → row
+expands full body. "Open latest reset email" deep-link target for 5.4 demo.
+**5.23 `/admin/identity`:** input any email → resolve chain via hubspot
+service: Contact (with ALL aliases, queried one highlighted) → Company →
+Locations grid → portal account (username/role/status) if exists. No exact
+match → "No exact match" + nearest contacts by name similarity (simple
+trigram/levenshtein on the mock store). Demo moment: paste
+`drchen.wasatch@gmail.com` → full Wasatch chain resolves.
+**5.24 `/admin/staff`:** manage admin_users (add, deactivate, reset
+password). Cannot deactivate self.
+
+---
+
+# SECTION 6 — SPRINT PLAN (Epic → Sprints → Stories w/ acceptance criteria)
+
+Each sprint below is ONE Replit Agent prompt: paste the sprint block PLUS
+Section 0 PLUS the relevant Section 3/4/5 excerpts. Do not start a sprint
+until the previous sprint's QA checklist passes.
+
+## SPRINT 0 — Foundation (schema, seed, services)
+- **S0.1** Scaffold stack per Section 2; env vars; folder structure.
+- **S0.2** Implement Section 3 schema EXACTLY in Drizzle (portal + hs_*).
+- **S0.3** hubspot.ts mock per 3C contract; hubspot-mock-db.ts; every write
+  logs real-API-shaped payload to integration_log.
+- **S0.4** shopify.ts, mailer.ts, places.ts mocks per specs in 5.9/5.11.
+- **S0.5** Seed script per Section 4 EXACTLY (10 orgs, users/roles/access,
+  alias emails, 14 products, 25 orders, 1 pending request). README with all
+  credentials.
+**QA 0:** `npm run seed` twice without error; row counts match spec
+(10 hs_companies, 21 hs_locations, 12 hs_billing_profiles, 25 orders, 14
+products, 20 portal_users, 2 admin_users); `schen` has 2 emails; Summit
+Smiles `rnorth` has exactly 2 access rows.
+
+## SPRINT 1 — Public site + auth
+- **S1.1** Homepage per 5.1 (nav dropdown works, Log In top-right, hero,
+  product grid from DB, footer, placeholder subpages).
+- **S1.2** Login per 5.2 incl. email-alias resolution + demo panel.
+- **S1.3** Forgot username / forgot password / reset per 5.3–5.4 incl.
+  tokens + email_log.
+- **S1.4** Session middleware, must_change_password interceptor,
+  /portal/change-password, logout.
+**QA 1:** login via username AND via gmail alias both reach same account;
+wrong password generic error; inactive user blocked; reset flow end-to-end
+via email-log link; logged-out /portal hit redirects; new-user temp password
+forces change screen.
+
+## SPRINT 2 — Portal shell, dashboard, history
+- **S2.1** Shell per 5.5 (role-aware nav, CRM session cache + Refresh, demo
+  banner).
+- **S2.2** Dashboard per 5.6 (role-scoped stats, recent orders, quick
+  reorder — all DB-driven).
+- **S2.3** History + detail per 5.7–5.8 (filters, scoping, snapshots
+  rendering, print stylesheet, integration panel).
+**QA 2:** `jbeck` (purchaser, Ogden only) sees ONLY Ogden orders and cannot
+open a Sandy order by URL (friendly 403/not-found); `dwallace` sees all 5
+locations' orders; stat cards recompute when a new seed order is added.
+
+## SPRINT 3 — Order wizard + integrations
+- **S3.1** Wizard steps 1–4 per 5.9 incl. single-location fast path,
+  role-filtered locations, billing resolution, PO suggestion, catalog +
+  cart, review.
+- **S3.2** Payment branch (net straight-through vs mock card step) per 5.9.
+- **S3.3** POST /api/orders transaction incl. server-side recompute, fresh
+  CRM re-fetch + snapshots, shopify + hubspot PO mocks, confirmation email.
+- **S3.4** Reorder + Quick Reorder preload paths.
+**QA 3:** Place a net-terms order as `schen` and a card order as `tjohnson`:
+verify order row, items, BOTH integration_log payloads (open them — payload
+must contain customAttributes with all 3 hubspot ids and the po_number),
+email_log w/ AP cc on the net order, correct free-shipping at ≥$500, totals
+recomputed even if client posts tampered prices. Reorder preloads correctly.
+
+## SPRINT 4 — Manage area + address autocomplete
+- **S4.1** places.ts autocomplete component (Google or mock fallback) with
+  fill-and-lock + manual-unlock behavior per 5.11.
+- **S4.2** Locations page + request modal + org_admin add/edit per
+  5.10/5.11/5.13.
+- **S4.3** Team management per 5.13 (3-step add-user, regional_admin
+  constraints, deactivate rules).
+- **S4.4** Contacts + alias emails; Account page per 5.12.
+- **S4.5** Billing page w/ allow_admin_billing_edit gating.
+**QA 4:** regional_admin `rnorth` can create a purchaser limited to
+Ogden/Layton but CANNOT grant Sandy or create an org_admin (server-verified
+via direct API call); purchaser request → email_log to rachelle + pending
+row; org_admin add-location appears instantly in wizard Step 1; adding alias
+email to own account then logging in with it works.
+
+## SPRINT 5 — God-mode admin console
+- **S5.1** Admin auth (separate cookie) + dashboard per 5.14–5.15.
+- **S5.2** Organizations list + full org detail tabs per 5.16–5.17.
+- **S5.3** Onboarding wizard per 5.18 (transactional, resumable, hs-id
+  success screen).
+- **S5.4** Location requests, orders w/ status advance + CSV, staff mgmt
+  per 5.19/5.20/5.24.
+- **S5.5** Integration log + email log + identity resolver per 5.21–5.23.
+**QA 5:** Rachelle onboards a brand-new org end-to-end in one sitting, then
+LOGS IN AS the new org admin with the temp password from the welcome
+email_log, is forced to change it, adds a purchaser, and places an order —
+zero manual DB edits. Identity resolver resolves the gmail alias. CSV export
+opens in Excel with correct rows. Deleting an in-use billing profile is
+blocked with a friendly error.
+
+## SPRINT 6 — Polish + full regression
+- **S6.1** Empty/loading/error states audit on every page (R5).
+- **S6.2** Status + payment badges, mobile pass on wizard + tables, print
+  view check.
+- **S6.3** Dead-control audit: click EVERY button/link in the app; fix any
+  that don't act (R1).
+- **S6.4** Full demo-script run (Section 7) top to bottom.
+
+---
+
+# SECTION 7 — 10-MINUTE DEMO SCRIPT (also the final acceptance test)
+
+1. Homepage → point out Log In top-right → /login demo panel.
+2. Log in as `mruiz` (purchaser, single location): dashboard scoped; New
+   Order auto-selects Main Office; billing shows Net 30 read-only; PO
+   suggested; add 2 Omnibut items; submit straight through; success banner;
+   open order → integration panel shows Shopify + HubSpot ids.
+3. Log out; log in as `drchen.wasatch@gmail.com` (THE alias) → lands in
+   Dr. Chen's account. Show Account page listing both emails.
+4. As `schen` (org_admin): Manage → add a location with autocomplete (type
+   "160 Main…", pick prediction, city/state/zip lock, add "Suite 210" in
+   line 2) → new location instantly available in wizard Step 1.
+5. Log in as `rnorth` (regional_admin, Summit): sees only Ogden+Layton; add
+   a purchaser scoped to Ogden; show he cannot create org_admins.
+6. As `jbeck`: Request a location → toast → switch to /admin → email-log
+   shows the Rachelle email; location-requests shows pending → approve with
+   billing picker.
+7. /admin as Rachelle: run the Onboarding Wizard for "Demo Dental of Draper"
+   → success screen with hs-ids → copy credentials → log into the new
+   account → forced password change → place a card-terms order (demo payment
+   step) → back to /admin/orders → advance it to Shipped.
+8. /admin/integration-log: open the draftOrderCreate payload — show
+   customAttributes carrying po_number + all three HubSpot ids ("this is
+   exactly what hits Shopify in phase 2").
+9. /admin/identity: paste the gmail alias → full chain resolves.
+10. /admin/organizations: toggle billing-edit for Wasatch → back as `schen`
+    → Billing tab is now editable.
+
+---
+
+# SECTION 8 — PHASE 2 SWAP MAP (for trial-account build, unchanged decisions)
+
+| Mock | Real | Notes |
+|---|---|---|
+| hubspot.ts + hs_* tables | HubSpot Private App, CRM v3 objects + v4 associations, Search API | Need Location custom object typeId (2-XXXXXXX) + property internal names + association typeIds. Reads by ID after create (search has indexing lag). ~190 req/10s limit — fine at this volume; use /batch/read for lists. |
+| shopify.ts | Admin GraphQL draftOrderCreate → complete/send-invoice; orders/create webhook for status | PO + hs-ids already ride customAttributes/tags. Evaluate Shopify Plus native B2B (Companies/Locations/terms) if on Plus. |
+| places.ts mock | Google Places Autocomplete now; Smarty (CASS) or Places+USPS verify for production standardization | Same component contract. |
+| mailer.ts | Resend or SendGrid via env vars | Call sites unchanged. Later: HubSpot task on location request. |
+| Mock card step | Real Shopify checkout/payment | Net-terms path already correct shape. |
+
+**Phase-2 field-gathering with Rachelle (bring this list):** exact current
+manual steps from "order arrives" to "PO in HubSpot"; Location custom object
+property list; whether Shopify invoices go to AP or the doctor today;
+required PO fields on their side; any org needing >2 billing profiles.

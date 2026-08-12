@@ -1,0 +1,34 @@
+# Smart On X Portal — Render Blueprint (free tier)
+# One web service (Express API + built React SPA) + free Postgres.
+# Deploy: Render Dashboard → New → Blueprint → point at this repo.
+#
+# NOTE: Render free Postgres expires after 30 days. Fine for the demo phase;
+# when it nags you, either upgrade it or point DATABASE_URL at Supabase.
+
+services:
+  - type: web
+    name: smartonx-portal
+    runtime: node
+    plan: free
+    buildCommand: >-
+      corepack enable &&
+      pnpm install --frozen-lockfile &&
+      PORT=10000 BASE_PATH=/ pnpm --filter @workspace/customer-portal run build &&
+      pnpm --filter @workspace/api-server run build
+    startCommand: node artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smartonx-db
+          property: connectionString
+
+databases:
+  - name: smartonx-db
+    plan: free
+    databaseName: soxportal
+    user: sox
