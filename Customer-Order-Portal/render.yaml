@@ -4,6 +4,7 @@ services:
     name: smartonx-portal
     runtime: node
     plan: free
+    rootDir: Customer-Order-Portal
     buildCommand: >-
       corepack pnpm install --frozen-lockfile &&
       PORT=10000 BASE_PATH=/ corepack pnpm --filter @workspace/customer-portal run build &&
