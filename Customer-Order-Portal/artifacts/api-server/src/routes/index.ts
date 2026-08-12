@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import setupRouter from "./setup";
 import authRouter from "./auth";
 import productsRouter from "./products";
 import crmRouter from "./crm";
@@ -29,6 +30,9 @@ const router: IRouter = Router();
 
 // Health
 router.use(healthRouter);
+
+// One-URL database bootstrap (guarded by SETUP_TOKEN; 404 when unset)
+router.use("/setup", setupRouter);
 
 // Auth (portal)
 router.use("/auth", authRouter);
