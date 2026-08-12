@@ -35,7 +35,7 @@ export default function PortalDashboard() {
           <p className="text-gray-500 mt-1">Overview of your account and recent activity.</p>
         </div>
         <Button asChild size="lg" className="shrink-0 bg-accent hover:bg-accent/90">
-          <Link href="/portal/order/new">
+          <Link href="/portal/orders/new">
             <ShoppingCart className="w-4 h-4 mr-2" />
             New Order
           </Link>
@@ -95,7 +95,7 @@ export default function PortalDashboard() {
                 <Package className="w-12 h-12 mx-auto text-gray-300 mb-4" />
                 <p>No orders placed yet.</p>
                 <Button asChild variant="outline" className="mt-4">
-                  <Link href="/portal/order/new">Place your first order</Link>
+                  <Link href="/portal/orders/new">Place your first order</Link>
                 </Button>
               </div>
             ) : (
@@ -147,6 +147,9 @@ export default function PortalDashboard() {
                       <div className="text-sm font-medium text-primary truncate">{product.name}</div>
                       <div className="text-xs text-gray-500 font-mono mt-0.5">{product.sku}</div>
                     </div>
+                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                      <Link href="/portal/orders/new">Order</Link>
+                    </Button>
                     <div className="text-sm font-bold shrink-0">{formatCurrency(product.unitPriceCents)}</div>
                   </div>
                 ))}

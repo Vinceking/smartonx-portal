@@ -1,6 +1,64 @@
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
-import { Package, Shield, Settings, Zap } from 'lucide-react';
+import { Package, Shield, Settings, Zap, ArrowRight } from 'lucide-react';
+import { useListProducts } from '@workspace/api-client-react';
+import { Skeleton } from '@/components/ui/skeleton';
+
+function ProductLineGrid() {
+  const { data: products, isLoading } = useListProducts();
+
+  const lines = products?.reduce((acc, p) => {
+    const entry = acc.get(p.productLine) ?? { count: 0, minPrice: Infinity, imageUrl: p.imageUrl };
+    entry.count += 1;
+    entry.minPrice = Math.min(entry.minPrice, p.unitPriceCents);
+    acc.set(p.productLine, entry);
+    return acc;
+  }, new Map<string, { count: number; minPrice: number; imageUrl: string | null }>());
+
+  const fmt = (cents: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+  return (
+    <section className="py-24 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-16">
+          <h2 className="text-3xl font-bold text-primary tracking-tight">Product Lines</h2>
+          <p className="mt-4 text-lg text-gray-600">Everything you need for All-on-X, from abutment to delivery.</p>
+        </div>
+        {isLoading ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-6">
+            {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-64 rounded-2xl" />)}
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-6">
+            {[...(lines ?? new Map())].map(([line, info]) => (
+              <Link key={line} href={`/shop?line=${encodeURIComponent(line)}`} className="group">
+                <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-lg hover:border-accent transition-all h-full flex flex-col">
+                  <div className="h-36 bg-gray-100 overflow-hidden">
+                    {info.imageUrl && (
+                      <img src={info.imageUrl} alt={line} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                    )}
+                  </div>
+                  <div className="p-5 flex-1 flex flex-col">
+                    <h3 className="font-semibold text-primary leading-snug">{line}</h3>
+                    <p className="text-sm text-gray-500 mt-1">{info.count} product{info.count === 1 ? '' : 's'}</p>
+                    <p className="text-sm text-gray-600 mt-auto pt-3">
+                      From <span className="font-semibold text-primary">{fmt(info.minPrice)}</span>
+                    </p>
+                    <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-accent">
+                      Shop
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
   return (
@@ -27,6 +85,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <ProductLineGrid />
 
       {/* Features */}
       <section className="py-24 bg-gray-50">

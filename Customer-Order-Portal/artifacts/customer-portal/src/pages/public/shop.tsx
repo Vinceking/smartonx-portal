@@ -1,4 +1,6 @@
 import { useListProducts } from '@workspace/api-client-react';
+import { useSearch, Link } from 'wouter';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Package } from 'lucide-react';
@@ -6,12 +8,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Shop() {
   const { data: products, isLoading } = useListProducts();
+  const search = useSearch();
+  const lineFilter = new URLSearchParams(search).get('line');
 
-  const productsByLine = products?.reduce((acc, product) => {
-    if (!acc[product.productLine]) acc[product.productLine] = [];
-    acc[product.productLine].push(product);
+  const visibleProducts = lineFilter
+    ? products?.filter((p) => p.productLine === lineFilter)
+    : products;
+
+  const productsByLine = visibleProducts?.reduce((acc, product) => {
+    (acc[product.productLine] ??= []).push(product);
     return acc;
-  }, {} as Record<string, typeof products>);
+  }, {} as Record<string, NonNullable<typeof products>>);
 
   const formatCurrency = (cents: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -21,10 +28,15 @@ export default function Shop() {
     <div className="py-12 bg-gray-50 min-h-[80vh]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-primary tracking-tight mb-4">Our Products</h1>
+          <h1 className="text-4xl font-bold text-primary tracking-tight mb-4">{lineFilter ?? 'Our Products'}</h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Log in to the ordering portal to place an order.
           </p>
+          {lineFilter && (
+            <Button variant="outline" asChild className="mt-4">
+              <Link href="/shop">← View all products</Link>
+            </Button>
+          )}
         </div>
 
         {isLoading ? (

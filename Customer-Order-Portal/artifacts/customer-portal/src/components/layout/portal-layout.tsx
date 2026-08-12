@@ -99,7 +99,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
                   </SidebarMenuItem>
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild tooltip="New Order">
-                      <Link href="/portal/order/new">
+                      <Link href="/portal/orders/new">
                         <Package className="w-4 h-4 mr-2" />
                         <span>New Order</span>
                       </Link>

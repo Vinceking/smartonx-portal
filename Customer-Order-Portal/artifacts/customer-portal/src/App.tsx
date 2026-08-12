@@ -119,6 +119,9 @@ function PortalAndPublicRoutes() {
               <Route path="/contact" component={() => <PlaceholderPage title="Contact" />} />
               <Route path="/events" component={() => <PlaceholderPage title="Events" />} />
               <Route path="/blog" component={() => <PlaceholderPage title="Blog" />} />
+              <Route path="/privacy" component={() => <PlaceholderPage title="Privacy Policy" />} />
+              <Route path="/terms" component={() => <PlaceholderPage title="Terms of Service" />} />
+              <Route path="/returns" component={() => <PlaceholderPage title="Returns" />} />
               <Route component={NotFound} />
             </Switch>
           </PublicLayout>

@@ -2,6 +2,14 @@ import { ReactNode } from 'react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 
+const PRODUCT_LINES = [
+  'Omnibut',
+  'Rapid Arches',
+  'Rapid Set Pickup Acrylic',
+  'SimpleTemp',
+  'Smart Denture Conversions',
+];
+
 export function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -13,19 +21,36 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </Link>
             
             <nav className="hidden md:flex items-center gap-6">
-              <Link href="/shop" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">Products</Link>
-              <Link href="/about" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">About Us</Link>
+              <div className="relative group">
+                <Link href="/shop" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors inline-flex items-center gap-1">
+                  Shop
+                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </Link>
+                <div className="absolute left-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-2 w-64">
+                    {PRODUCT_LINES.map((line) => (
+                      <Link key={line} href={`/shop?line=${encodeURIComponent(line)}`} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary">
+                        {line}
+                      </Link>
+                    ))}
+                    <div className="border-t my-2" />
+                    <Link href="/shop" className="block px-4 py-2 text-sm font-medium text-primary hover:bg-gray-50">
+                      View All Products
+                    </Link>
+                  </div>
+                </div>
+              </div>
               <Link href="/training" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">Training</Link>
+              <Link href="/about" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">About Us</Link>
+              <Link href="/blog" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">Blog</Link>
+              <Link href="/events" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">Events</Link>
               <Link href="/contact" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">Contact</Link>
             </nav>
           </div>
           
           <div className="flex items-center gap-4">
-            <Button variant="ghost" asChild className="hidden sm:inline-flex text-primary">
-              <Link href="/login">Portal Login</Link>
-            </Button>
-            <Button asChild className="bg-primary hover:bg-primary/90">
-              <Link href="/login">Order Now</Link>
+            <Button asChild className="bg-primary hover:bg-primary/90 rounded-full px-6">
+              <Link href="/login">Log In</Link>
             </Button>
           </div>
         </div>
@@ -47,10 +72,11 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <div>
               <h3 className="font-semibold mb-4">Products</h3>
               <ul className="space-y-2 text-sm text-primary-foreground/70">
-                <li><Link href="/shop">Omnibut</Link></li>
-                <li><Link href="/shop">Rapid Arches</Link></li>
-                <li><Link href="/shop">Rapid Set Pickup Acrylic</Link></li>
-                <li><Link href="/shop">SimpleTemp</Link></li>
+                <li><Link href="/shop?line=Omnibut" className="hover:text-white transition-colors">Omnibut</Link></li>
+                <li><Link href="/shop?line=Rapid%20Arches" className="hover:text-white transition-colors">Rapid Arches</Link></li>
+                <li><Link href="/shop?line=Rapid%20Set%20Pickup%20Acrylic" className="hover:text-white transition-colors">Rapid Set Pickup Acrylic</Link></li>
+                <li><Link href="/shop?line=SimpleTemp" className="hover:text-white transition-colors">SimpleTemp</Link></li>
+                <li><Link href="/shop?line=Smart%20Denture%20Conversions" className="hover:text-white transition-colors">Smart Denture Conversions</Link></li>
               </ul>
             </div>
             <div>
@@ -65,9 +91,9 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <div>
               <h3 className="font-semibold mb-4">Legal</h3>
               <ul className="space-y-2 text-sm text-primary-foreground/70">
-                <li><a href="#" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Returns</a></li>
+                <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link></li>
+                <li><Link href="/returns" className="hover:text-white transition-colors">Returns</Link></li>
               </ul>
             </div>
           </div>
